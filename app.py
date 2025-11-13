@@ -5,30 +5,36 @@ st.set_page_config(page_title="Weather Clothing Recommender", page_icon="👕")
 
 st.title("👕 Weather-Based Clothing Recommender")
 st.write("This App is created by Tanuj Jain")
-# ---------- FUNCTION TO GET WEATHER ----------
-def get_weather(city):
-    # Get coordinates for the city using Open-Meteo's geocoding API
-    geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}"
-    geo_response = requests.get(geo_url)
-    if geo_response.status_code != 200 or not geo_response.json().get("results"):
+# ---------- FUNCTION: GET LOCATION BY IP ----------
+def get_location_by_ip():
+    try:
+        ip_url = "https://ipapi.co/json/"
+        response = requests.get(ip_url)
+        if response.status_code == 200:
+            data = response.json()
+            location = {
+                "city": data.get("city", "Unknown"),
+                "latitude": data.get("latitude"),
+                "longitude": data.get("longitude"),
+                "country": data.get("country_name"),
+            }
+            return location
+    except Exception:
         return None
-    
-    location = geo_response.json()["results"][0]
-    lat, lon = location["latitude"], location["longitude"]
 
-    # Get extended weather info
+# ---------- FUNCTION: GET WEATHER ----------
+def get_weather(lat, lon, city_name):
     weather_url = (
         f"https://api.open-meteo.com/v1/forecast?"
         f"latitude={lat}&longitude={lon}"
         f"&current=temperature_2m,apparent_temperature,relative_humidity_2m,"
         f"precipitation,cloud_cover,wind_speed_10m,wind_direction_10m,weather_code"
     )
-
     response = requests.get(weather_url)
     if response.status_code == 200:
         data = response.json().get("current", {})
         weather = {
-            "city": location["name"],
+            "city": city_name,
             "temperature": data.get("temperature_2m"),
             "feels_like": data.get("apparent_temperature"),
             "humidity": data.get("relative_humidity_2m"),
@@ -42,17 +48,17 @@ def get_weather(city):
     else:
         return None
 
-# ---------- WEATHER CODE DESCRIPTION ----------
+# ---------- WEATHER CODE DESCRIPTIONS ----------
 WEATHER_CODES = {
     0: "☀️ Clear sky",
     1: "🌤️ Mainly clear",
     2: "⛅ Partly cloudy",
     3: "☁️ Overcast",
     45: "🌫️ Fog",
-    48: "🌫️ Depositing rime fog",
+    48: "🌫️ Rime fog",
     51: "🌦️ Light drizzle",
     61: "🌧️ Rain",
-    71: "🌨️ Snow fall",
+    71: "🌨️ Snowfall",
     80: "🌦️ Rain showers",
     95: "⛈️ Thunderstorm",
 }
@@ -71,13 +77,40 @@ def recommend_clothing(temp, rain, wind_speed, weather_code):
         return "🩳 Hot day — wear shorts and stay hydrated."
 
 # ---------- STREAMLIT UI ----------
-city = st.text_input("Enter a city name:", "")
+st.info("The app can auto-detect your location or you can enter any city manually.")
+
+auto_detect = st.checkbox("📍 Auto-detect my location", value=True)
+city_input = st.text_input("Or enter a city name manually (optional):", "")
 
 if st.button("Get Recommendation"):
-    if city:
-        weather = get_weather(city)
+    location = None
+
+    if auto_detect:
+        location = get_location_by_ip()
+        if location:
+            st.success(f"📍 Detected location: {location['city']}, {location['country']}")
+        else:
+            st.warning("⚠️ Unable to detect your location. Please enter manually.")
+
+    # If user typed a city name, override auto-detect
+    if city_input:
+        geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city_input}"
+        geo_response = requests.get(geo_url)
+        if geo_response.status_code == 200 and geo_response.json().get("results"):
+            location_data = geo_response.json()["results"][0]
+            location = {
+                "city": location_data["name"],
+                "latitude": location_data["latitude"],
+                "longitude": location_data["longitude"],
+                "country": location_data.get("country", ""),
+            }
+        else:
+            st.error("❌ Could not find city. Please check spelling.")
+
+    if location:
+        weather = get_weather(location["latitude"], location["longitude"], location["city"])
         if weather:
-            st.success(f"**City:** {weather['city']}")
+            st.subheader(f"🌍 Weather in {weather['city']}")
             st.write(f"🌡️ **Temperature:** {weather['temperature']}°C")
             st.write(f"🥵 **Feels Like:** {weather['feels_like']}°C")
             st.write(f"💧 **Humidity:** {weather['humidity']}%")
@@ -85,7 +118,7 @@ if st.button("Get Recommendation"):
             st.write(f"☁️ **Cloud Cover:** {weather['cloud_cover']}%")
             st.write(f"💨 **Wind Speed:** {weather['wind_speed']} km/h")
             st.write(f"🧭 **Wind Direction:** {weather['wind_direction']}°")
-            
+
             desc = WEATHER_CODES.get(weather['weather_code'], "🌈 Weather data unavailable")
             st.write(f"🌥️ **Condition:** {desc}")
 
@@ -95,6 +128,4 @@ if st.button("Get Recommendation"):
             st.subheader("👗 Clothing Recommendation:")
             st.info(recommendation)
         else:
-            st.error("City not found or weather data unavailable.")
-    else:
-        st.warning("Please enter a city name.")
+            st.error("Could not fetch weather data. Try again later.")
